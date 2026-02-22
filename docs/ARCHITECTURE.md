@@ -1,8 +1,8 @@
-# Umbra - Multi-Platform Architecture
+# Umbra - Architecture
 
 ## Overview
 
-Multi-platform Android app architecture with **shared modules** and **multiple feature/platform modules**.
+Modular Android app architecture with **shared modules** and **feature modules**.
 
 **Shared modules:**
 
@@ -19,21 +19,30 @@ Multi-platform Android app architecture with **shared modules** and **multiple f
 **Platform modules:**
 
 - `:app` - Mobile Android
-- `:wearos` - WearOS
-- `:tv` - Android TV (optional)
-- `:auto` - Android Auto (optional)
+
+> **Future/Unplanned:** `:wearos`, `:tv`, and `:auto` modules are not in scope for initial development. A terminal on a watch or in a car is not a viable product. These may be explored after the core mobile experience ships, if at all.
+
+## Current State vs. Target State
+
+**Current State:** The codebase contains only the `:app` module with a hello-world JNI stub. No Compose UI, no Koin DI, no Room database, and no native terminal engine. The module structure described below is the **target architecture**.
+
+**Target State:** The full multi-module architecture described in this document, with a working libghostty-vt integration, SSH/Mosh networking, and Vulkan rendering pipeline.
+
+Development will incrementally build toward the target state, starting with the Phase 0 libghostty spike (see `docs/PRD.md`).
+
+---
 
 ## What is a Feature?
 
 A **feature** is a complete user journey or business capability, not just a single screen. This distinction is crucial for creating a clean and maintainable structure.
 
-### ✅ Good Features (Business Capabilities)
+### Good Features (Business Capabilities)
 
 - **sessions**: Full session lifecycle (create, switch, resize, close terminal sessions).
 - **hosts**: Connection profile management (SSH hosts, credentials, jump hosts).
 - **settings**: App and terminal preferences (themes, fonts, key bindings).
 
-### ❌ Poor Features (Just Screens)
+### Poor Features (Just Screens)
 
 - **login-screen**: Too granular. This should be part of a broader feature.
 - **theme-picker**: Should be part of the `settings` feature.
@@ -53,35 +62,34 @@ umbra/
 │           ├── AppNavigation.kt      # NavDisplay, entryProvider, sceneStrategy
 │           └── NavigationRoutes.kt   # Defines all serializable NavKey objects
 │
-├── wearos/                   # WearOS app module
-│   └── src/main/kotlin/com/yourpackage/wear/
-│       ├── MainActivity.kt
-│       ├── di/
-│       │   └── WearAppModule.kt      # Loads DI modules for wear platform
-│       └── navigation/               # WearOS-specific navigation
-│           ├── WearNavigation.kt     # Contains SwipeDismissableNavHost
-│           └── WearRoutes.kt         # Sealed class routes for type safety
-│
 ├── terminal/                 # Native terminal engine (NDK/C++)
 │   ├── src/main/cpp/         # C/C++ source (JNI glue, Vulkan, etc.)
-│   └── src/main/kotlin/      # Kotlin JNI bindings
+│   │   ├── jni_bridge.cpp    # JNI entry points (see Terminal Internals below)
+│   │   ├── vulkan_renderer/  # Vulkan surface, pipeline, glyph atlas
+│   │   ├── terminal_engine/  # TerminalEngine C interface (wraps libghostty or fallback)
+│   │   └── networking/       # libssh2 integration, Mosh protocol
+│   └── src/main/kotlin/      # Kotlin JNI bindings & TerminalEngine interface
+│       └── com/yourpackage/terminal/
+│           ├── TerminalEngine.kt     # Abstract interface for VT backends
+│           ├── GhosttyEngine.kt      # libghostty-vt implementation
+│           ├── SessionManager.kt     # Session state machine (see PRD Section 8)
+│           └── NativeBridge.kt       # JNI external function declarations
 │
 ├── core/                     # Unified core module
 │   └── src/main/kotlin/com/yourpackage/core/
 │       ├── common/           # Pure Kotlin utilities, Result class, extensions
-│       ├── data/             # ALL repositories, DAOs, network APIs, Room/Retrofit setup
+│       ├── data/             # ALL repositories, DAOs, Room setup
 │       │   ├── local/        # Room database, DAOs, entities
-│       │   ├── remote/       # Retrofit APIs, DTOs, network layer
 │       │   └── repository/   # Repository implementations
 │       ├── domain/           # ALL domain models and use cases
-│       │   ├── model/        # Business models (User, etc.)
+│       │   ├── model/        # Business models (Host, TerminalProfile, KnownHost, etc.)
 │       │   ├── repository/   # Repository interfaces
 │       │   └── usecase/      # Use cases
 │       ├── ui/               # Shared design system
 │       │   ├── theme/        # App theme, colors, typography
 │       │   ├── component/    # Reusable UI components
 │       │   └── util/         # UI utilities
-│       └── di/               # Core infrastructure DI (repositories, network, database)
+│       └── di/               # Core infrastructure DI (repositories, database)
 │
 └── features/
     ├── sessions/             # Session management feature (presentation only)
@@ -89,8 +97,8 @@ umbra/
     │   └── src/main/kotlin/com/yourpackage/features/sessions/
     │       ├── di/
     │       │   └── SessionsModule.kt # DI for the ViewModel
-    │       ├── SessionsViewModel.kt  # SHARED ViewModel for mobile & wear
-    │       └── SessionsScreen.kt     # Mobile or shared UI screen
+    │       ├── SessionsViewModel.kt  # ViewModel for session lifecycle
+    │       └── SessionsScreen.kt     # Terminal display + session switching UI
     │
     ├── hosts/                # Host/connection profile management
     │   ├── build.gradle.kts
@@ -121,19 +129,15 @@ This automatically picks up any subdirectory under `features/` as a module.
 
 ## Platform-Specific Navigation
 
-A key strength of this architecture is how it isolates platform-specific implementations. Navigation is a perfect example of this.
-
 **`:app` Module**: Uses the Navigation 3 library (`androidx.navigation3`) to handle adaptive layouts with scenes, a savable back stack with keys, and a central `NavDisplay`.
 
-**`:wearos` Module**: Uses the specialized Wear Compose Navigation library (`androidx.wear.compose:compose-navigation`), which provides components tailored for watches, like the `SwipeDismissableNavHost`.
-
-The feature modules simply provide the `@Composable` screens. The `:app` and `:wearos` modules are independently responsible for calling those screens using the correct navigation library for their platform.
+The feature modules provide `@Composable` screens. The `:app` module is responsible for calling those screens using the navigation library.
 
 ## Why This Works Well
 
 **Incremental Build Caching**: Each feature module is cached independently. Editing one feature doesn't recompile the others.
 
-**Multi-platform Ready**: All platform modules (`:app`, `:wearos`, `:tv`, `:auto`, etc.) can share feature code from day one.
+**Multi-platform Ready**: Feature modules are platform-agnostic and can be shared if additional platform modules are added later.
 
 **Clean Dependencies**: Feature modules cannot depend on each other, only on `:core` and `:terminal`. This prevents your project from becoming a "ball of mud."
 
@@ -144,14 +148,14 @@ The feature modules simply provide the `@Composable` screens. The `:app` and `:w
 The fundamental principle is strictly enforced. The dependency direction is always:
 
 ```
-app/wearos → features:* → core
-                         → terminal
+app → features:* → core
+                  → terminal
 ```
 
 ## Example Module Dependencies
 
 ```kotlin
-// In app/build.gradle.kts and wearos/build.gradle.kts
+// In app/build.gradle.kts
 dependencies {
     implementation(project(":core"))
     implementation(project(":terminal"))
@@ -167,16 +171,13 @@ dependencies {
     implementation(project(":terminal"))
 
     // NO dependency on other feature modules allowed!
-    // ❌ implementation(project(":features:hosts")) // This breaks isolation
-
-    // NO dependency on app/wearos modules allowed!
-    // ❌ implementation(project(":app")) // This would cause circular dependency
+    // implementation(project(":features:hosts")) // This breaks isolation
 }
 
 // In core/build.gradle.kts
 dependencies {
     // Core has no dependency on other project modules
-    // Only external libraries (Retrofit, Room, etc.)
+    // Only external libraries (Room, etc.)
 }
 ```
 
@@ -186,32 +187,73 @@ Umbra uses a Dual-Plane architecture. The **Data Plane** (native C/C++) handles 
 
 ## Tech Stack
 
+- **UI**: Jetpack Compose + Material 3
 - **Dependency Injection**: Koin
-- **Networking**: Retrofit
 - **Database**: Room
-- **Navigation**:
-  - Mobile: Navigation 3 (`androidx.navigation3`)
-  - WearOS: Wear Compose Navigation (`androidx.wear.compose:compose-navigation`)
-- **Terminal Engine**: libghostty-vt (via NDK)
+- **Navigation**: Navigation 3 (`androidx.navigation3`)
+- **Terminal Engine**: libghostty-vt (via NDK), behind `TerminalEngine` interface (fallback: libvterm)
 - **Rendering**: Vulkan (native NDK)
 - **Font Stack**: HarfBuzz (shaping) + FreeType (rasterization)
-- **Networking (SSH)**: libssh2 (SSH), Mosh (optional)
+- **SSH**: libssh2
+- **Mosh**: Clean-room Kotlin/Native implementation (see PRD Section 4)
 - **Build (Native)**: CMake (NDK native compilation)
-- **Platforms**: Mobile Android + WearOS
+- **Platforms**: Mobile Android
 
 ## Benefits
 
 - **Faster Incremental Builds**: Gradle caches unchanged feature modules independently
-- **Multi-platform Code Sharing**: Features work across all platforms from day one
+- **Multi-platform Ready**: Features are platform-agnostic if additional platforms are added later
 - **Solo Development Friendly**: Wildcard includes reduce boilerplate for new features
-- **Platform Flexibility**: Each platform uses optimal navigation solution
+- **Terminal Backend Flexibility**: `TerminalEngine` interface allows swapping VT backends without affecting the rest of the app
 - **Feature Isolation**: Features can't depend on each other, keeping architecture clean
+
+## TerminalEngine Interface
+
+The `:terminal` module defines a `TerminalEngine` interface that abstracts the VT backend. This is the critical decoupling point that allows swapping libghostty for a fallback (libvterm, custom parser) if cross-compilation fails.
+
+```kotlin
+interface TerminalEngine {
+    fun initialize(config: TerminalConfig): Boolean
+    fun processInput(data: ByteArray)
+    fun resize(cols: Int, rows: Int)
+    fun getCell(row: Int, col: Int): Cell
+    fun getDirtyCells(): List<CellUpdate>
+    fun destroy()
+}
+```
+
+`GhosttyEngine` implements this interface by calling into libghostty-vt via JNI. A `LibvtermEngine` fallback can be built against the same interface.
+
+## Terminal Module Internals
+
+**JNI Entry Points** (`jni_bridge.cpp`):
+
+- `nativeCreateSession(config)` — Allocates a VT state machine and Vulkan surface.
+- `nativeProcessInput(sessionId, bytes)` — Feeds raw bytes from SSH/Mosh into the VT.
+- `nativeResize(sessionId, cols, rows)` — Triggers reflow in the VT and Vulkan viewport resize.
+- `nativeGetSessionState(sessionId)` — Returns batched metadata (title, cursor pos, bell flag) for the Control Plane.
+- `nativeDestroy(sessionId)` — Tears down VT state, frees Vulkan resources.
+
+**Thread Model:**
+
+- **Main thread (Kotlin):** UI rendering, gesture handling, IME input.
+- **Render thread (native):** Blocks on `pthread_cond_wait`, wakes on dirty cells, submits Vulkan draw calls. One thread per session.
+- **Network thread (native):** Reads from SSH/Mosh socket, feeds bytes to VT. One thread per session.
+- **JNI bridge calls** happen on the main thread for input events and on a dedicated metadata polling thread for batched state updates.
+
+**Vulkan Surface Lifecycle:**
+
+1. `SurfaceView.surfaceCreated` → JNI call to create `VkSurfaceKHR` + swapchain.
+2. `SurfaceView.surfaceChanged` → JNI call to recreate swapchain with new dimensions.
+3. `SurfaceView.surfaceDestroyed` → JNI call to release Vulkan resources. Render thread pauses.
+4. On app resume → Surface is recreated; render thread resumes from the last VT state.
 
 ## Getting Started
 
-1. **Create core module**: Build `:core` with all shared logic
-2. **Create terminal module**: Build `:terminal` with NDK/native code
-3. **Create first feature**: Add `features/sessions/` directory with `build.gradle.kts`
-4. **Add wildcard include**: Set up auto-registration in `settings.gradle.kts`
-5. **Platform setup**: Implement platform modules (`:app`, `:wearos`) with appropriate navigation
-6. **Iterate**: Add more feature modules as needed, each containing only presentation layer
+1. **Phase 0 spike**: Prove libghostty cross-compiles for Android NDK (see PRD)
+2. **Create core module**: Build `:core` with Room database and domain models
+3. **Create terminal module**: Build `:terminal` with `TerminalEngine` interface and JNI bridge
+4. **Create first feature**: Add `features/sessions/` directory with `build.gradle.kts`
+5. **Add wildcard include**: Set up auto-registration in `settings.gradle.kts`
+6. **Platform setup**: Implement `:app` module with Navigation 3
+7. **Iterate**: Add more feature modules as needed, each containing only presentation layer

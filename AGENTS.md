@@ -9,7 +9,9 @@ A high-performance, GPU-accelerated Android terminal powered by libghostty.
 
 ## Tech Stack
 
-Kotlin, Jetpack Compose, Material 3, Koin (DI), Room (database), Retrofit (network), Navigation 3
+Kotlin, Jetpack Compose, Material 3, Koin (DI), Room (database), Navigation 3, libghostty-vt (NDK), Vulkan, libssh2
+
+> **Note:** The codebase is currently in early development (`:app` module with JNI stub only). The tech stack above reflects the target architecture. See `docs/ARCHITECTURE.md` for the Current State vs. Target State distinction.
 
 ## Commands
 
