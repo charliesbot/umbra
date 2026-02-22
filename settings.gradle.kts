@@ -24,4 +24,14 @@ dependencyResolutionManagement {
 
 rootProject.name = "umbra"
 include(":app")
- 
+include(":core")
+include(":terminal")
+
+// Auto-register feature modules
+file("features").let { dir ->
+    if (dir.isDirectory) {
+        dir.listFiles()?.filter { it.isDirectory && File(it, "build.gradle.kts").exists() }?.forEach {
+            include(":features:${it.name}")
+        }
+    }
+}
