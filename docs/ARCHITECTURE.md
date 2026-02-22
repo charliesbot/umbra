@@ -1,18 +1,19 @@
-# Android Dojo - Simple Multi-Platform Architecture
+# Umbra - Multi-Platform Architecture
 
 ## Overview
 
-Multi-platform Android app architecture with **1 shared module** and **multiple feature/platform modules**.
+Multi-platform Android app architecture with **shared modules** and **multiple feature/platform modules**.
 
-**Shared module:**
+**Shared modules:**
 
 - `:core` - Business logic, data, shared UI
+- `:terminal` - Native NDK code (libghostty-vt, Vulkan renderer, JNI bridge, networking)
 
 **Feature modules:**
 
-- `:features:auth` - Authentication feature
-- `:features:dashboard` - Dashboard feature
-- `:features:profile` - Profile feature
+- `:features:sessions` - Terminal session management (create, switch, close sessions)
+- `:features:hosts` - SSH host/connection profile management
+- `:features:settings` - App and terminal preferences, theme selection
 - (add more as needed)
 
 **Platform modules:**
@@ -28,21 +29,21 @@ A **feature** is a complete user journey or business capability, not just a sing
 
 ### ✅ Good Features (Business Capabilities)
 
-- **auth**: The entire authentication flow (login, register, forgot password).
-- **profile**: User profile management (view, edit, settings).
-- **cart**: The complete shopping cart and checkout process.
+- **sessions**: Full session lifecycle (create, switch, resize, close terminal sessions).
+- **hosts**: Connection profile management (SSH hosts, credentials, jump hosts).
+- **settings**: App and terminal preferences (themes, fonts, key bindings).
 
 ### ❌ Poor Features (Just Screens)
 
-- **login-screen**: Too granular. This should be part of the `auth` feature.
-- **settings-screen**: Should be part of the `profile` feature.
+- **login-screen**: Too granular. This should be part of a broader feature.
+- **theme-picker**: Should be part of the `settings` feature.
 
 By creating feature modules for business capabilities, you create cohesive and self-contained units that are easier to manage, test, and benefit from incremental build caching.
 
 ## Module Structure
 
 ```
-android-dojo/
+umbra/
 ├── app/                      # Mobile Android app module
 │   └── src/main/kotlin/com/yourpackage/
 │       ├── MainActivity.kt
@@ -50,9 +51,7 @@ android-dojo/
 │       │   └── AppModule.kt          # Loads all DI modules (core + features)
 │       └── navigation/               # Navigation 3 setup
 │           ├── AppNavigation.kt      # NavDisplay, entryProvider, sceneStrategy
-│           ├── NavigationRoutes.kt   # Defines all serializable NavKey objects
-│           └── scenes/
-│               └── DashboardScene.kt
+│           └── NavigationRoutes.kt   # Defines all serializable NavKey objects
 │
 ├── wearos/                   # WearOS app module
 │   └── src/main/kotlin/com/yourpackage/wear/
@@ -62,6 +61,10 @@ android-dojo/
 │       └── navigation/               # WearOS-specific navigation
 │           ├── WearNavigation.kt     # Contains SwipeDismissableNavHost
 │           └── WearRoutes.kt         # Sealed class routes for type safety
+│
+├── terminal/                 # Native terminal engine (NDK/C++)
+│   ├── src/main/cpp/         # C/C++ source (JNI glue, Vulkan, etc.)
+│   └── src/main/kotlin/      # Kotlin JNI bindings
 │
 ├── core/                     # Unified core module
 │   └── src/main/kotlin/com/yourpackage/core/
@@ -81,27 +84,25 @@ android-dojo/
 │       └── di/               # Core infrastructure DI (repositories, network, database)
 │
 └── features/
-    ├── auth/                 # Auth feature module (presentation only)
+    ├── sessions/             # Session management feature (presentation only)
     │   ├── build.gradle.kts
-    │   └── src/main/kotlin/com/yourpackage/features/auth/
+    │   └── src/main/kotlin/com/yourpackage/features/sessions/
     │       ├── di/
-    │       │   └── AuthModule.kt     # DI for the ViewModel
-    │       ├── AuthViewModel.kt      # SHARED ViewModel for mobile & wear
-    │       ├── LoginScreen.kt        # Mobile or shared UI screen
-    │       └── wear/                 # Sub-package for WearOS-specific UI
-    │           └── WearLoginScreen.kt
+    │       │   └── SessionsModule.kt # DI for the ViewModel
+    │       ├── SessionsViewModel.kt  # SHARED ViewModel for mobile & wear
+    │       └── SessionsScreen.kt     # Mobile or shared UI screen
     │
-    ├── dashboard/            # Dashboard feature module
+    ├── hosts/                # Host/connection profile management
     │   ├── build.gradle.kts
-    │   └── src/main/kotlin/com/yourpackage/features/dashboard/
+    │   └── src/main/kotlin/com/yourpackage/features/hosts/
     │       ├── di/
-    │       │   └── DashboardModule.kt
-    │       ├── DashboardViewModel.kt
-    │       └── DashboardScreen.kt
+    │       │   └── HostsModule.kt
+    │       ├── HostsViewModel.kt
+    │       └── HostsScreen.kt
     │
-    └── profile/              # Additional feature modules...
+    └── settings/             # App and terminal preferences
         ├── build.gradle.kts
-        └── src/main/kotlin/com/yourpackage/features/profile/
+        └── src/main/kotlin/com/yourpackage/features/settings/
             └── ...
 ```
 
@@ -134,7 +135,7 @@ The feature modules simply provide the `@Composable` screens. The `:app` and `:w
 
 **Multi-platform Ready**: All platform modules (`:app`, `:wearos`, `:tv`, `:auto`, etc.) can share feature code from day one.
 
-**Clean Dependencies**: Feature modules cannot depend on each other, only on `:core`. This prevents your project from becoming a "ball of mud."
+**Clean Dependencies**: Feature modules cannot depend on each other, only on `:core` and `:terminal`. This prevents your project from becoming a "ball of mud."
 
 **Easy Scaffolding**: New features just need a directory with a `build.gradle.kts`. The wildcard include handles registration automatically.
 
@@ -144,6 +145,7 @@ The fundamental principle is strictly enforced. The dependency direction is alwa
 
 ```
 app/wearos → features:* → core
+                         → terminal
 ```
 
 ## Example Module Dependencies
@@ -152,18 +154,20 @@ app/wearos → features:* → core
 // In app/build.gradle.kts and wearos/build.gradle.kts
 dependencies {
     implementation(project(":core"))
-    implementation(project(":features:auth"))
-    implementation(project(":features:dashboard"))
-    implementation(project(":features:profile"))
+    implementation(project(":terminal"))
+    implementation(project(":features:sessions"))
+    implementation(project(":features:hosts"))
+    implementation(project(":features:settings"))
 }
 
-// In features/auth/build.gradle.kts (and other feature modules)
+// In features/sessions/build.gradle.kts (and other feature modules)
 dependencies {
-    // Feature modules depend ONLY on the core module
+    // Feature modules depend on :core and :terminal
     implementation(project(":core"))
+    implementation(project(":terminal"))
 
     // NO dependency on other feature modules allowed!
-    // ❌ implementation(project(":features:profile")) // This breaks isolation
+    // ❌ implementation(project(":features:hosts")) // This breaks isolation
 
     // NO dependency on app/wearos modules allowed!
     // ❌ implementation(project(":app")) // This would cause circular dependency
@@ -176,6 +180,10 @@ dependencies {
 }
 ```
 
+## Native Architecture
+
+Umbra uses a Dual-Plane architecture. The **Data Plane** (native C/C++) handles rendering and networking. The **Control Plane** (Kotlin/JNI) handles UI signals and metadata. See `docs/PRD.md` for full details.
+
 ## Tech Stack
 
 - **Dependency Injection**: Koin
@@ -184,6 +192,11 @@ dependencies {
 - **Navigation**:
   - Mobile: Navigation 3 (`androidx.navigation3`)
   - WearOS: Wear Compose Navigation (`androidx.wear.compose:compose-navigation`)
+- **Terminal Engine**: libghostty-vt (via NDK)
+- **Rendering**: Vulkan (native NDK)
+- **Font Stack**: HarfBuzz (shaping) + FreeType (rasterization)
+- **Networking (SSH)**: libssh2 (SSH), Mosh (optional)
+- **Build (Native)**: CMake (NDK native compilation)
 - **Platforms**: Mobile Android + WearOS
 
 ## Benefits
@@ -197,7 +210,8 @@ dependencies {
 ## Getting Started
 
 1. **Create core module**: Build `:core` with all shared logic
-2. **Create first feature**: Add `features/auth/` directory with `build.gradle.kts`
-3. **Add wildcard include**: Set up auto-registration in `settings.gradle.kts`
-4. **Platform setup**: Implement platform modules (`:app`, `:wearos`) with appropriate navigation
-5. **Iterate**: Add more feature modules as needed, each containing only presentation layer
+2. **Create terminal module**: Build `:terminal` with NDK/native code
+3. **Create first feature**: Add `features/sessions/` directory with `build.gradle.kts`
+4. **Add wildcard include**: Set up auto-registration in `settings.gradle.kts`
+5. **Platform setup**: Implement platform modules (`:app`, `:wearos`) with appropriate navigation
+6. **Iterate**: Add more feature modules as needed, each containing only presentation layer
