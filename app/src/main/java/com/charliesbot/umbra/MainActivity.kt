@@ -2,7 +2,8 @@ package com.charliesbot.umbra
 
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
-import android.widget.TextView
+import com.charliesbot.terminal.GhosttyEngine
+import com.charliesbot.terminal.TerminalConfig
 import com.charliesbot.umbra.databinding.ActivityMainBinding
 
 class MainActivity : AppCompatActivity() {
@@ -15,20 +16,9 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Example of a call to a native method
-        binding.sampleText.text = stringFromJNI()
-    }
-
-    /**
-     * A native method that is implemented by the 'umbra' native library,
-     * which is packaged with this application.
-     */
-    external fun stringFromJNI(): String
-
-    companion object {
-        // Used to load the 'umbra' library on application startup.
-        init {
-            System.loadLibrary("umbra")
-        }
+        val engine = GhosttyEngine()
+        val ok = engine.initialize(TerminalConfig())
+        binding.sampleText.text = if (ok) "Terminal engine initialized" else "Engine init failed"
+        engine.destroy()
     }
 }
